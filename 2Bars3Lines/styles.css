@@ -1,0 +1,25 @@
+body {
+	margin: 0px;
+  overflow: hidden;
+  text-align: center;
+  font-size: 13em;
+}
+
+#legendTop {
+  border: solid 0px blue;
+  position: absolute;
+  left: 0px;
+  top: 0px;
+}
+
+#charts {
+  border: solid 0px blue;
+  position: relative;
+  top: 0px;
+}
+
+#mainContainer {
+  position: relative;
+  height: 450px;
+  width: 960px;
+}
