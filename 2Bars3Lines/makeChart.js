@@ -3,58 +3,90 @@
 //width_p - width of svg
 //height_p - height of svg
 //arrOfColors - array of line/rectangle colors
-//arrRectangle - array of bools (false not rectangle, true is)
-//arrArea - array of bools (false without area, true with)
+//arrRectangle - boolean array (false not rectangle, true is)
+//arrArea - boolean array (false without area, true with)
+//arrOfDots - boolean array (false dots without line, true with)
 //rightAxis - true or false
-//(right/left/bottom)Axis(Min/Max)Value - values for domains
+//(right/left)Axis(Min/Max)Value - values for domains
+//(right/left/bottom)AxisTicks - amount of ticks for each axis
+//start - index of initial column
+//additionalLeftMargin - add some left margin
+//toReplace - id of old chart to replace
+//dotsRadius - radius of dot
+//onClick - do we need to onClick eventlistener
+//dashedLine - boolean array (false line is not dashed, true dashed)
+//additional(Left/Right)Margin - additional margin
+//forceLength - if we want to make chart's length bigger (example: 28 rows from select, we need 52 => forceLength = 52)
 
-function makeChart(chartNum, data_p, width_p, height_p,
-    arrOfNames,
+export function makeChart({ chartNum, data_p, width_p, height_p,
+    arrOfNames = [],
+    stringForAbuseDay = '',
     arrOfColors,
-    arrRectangle, arrArea,
-    rightAxis,
-    rightAxisMinValue, rightAxisMaxValue,
-    leftAxisMinValue, leftAxisMaxValue,
-    bottomAxisMinValue, bottomAxisMaxValue) {
+    arrRectangle,
+    arrArea = [],
+    dotsRadius = 3,
+    arrOfLines = [],
+    dashedLine = [],
+    rightAxis = false,
+    leftArr = [],
+    forceRightAxisMin, forceRightAxisMax,
+    forceLeftAxisMin, forcleLeftAxisMax,
+    bottomAxisTicks = 0,
+    start = 1,
+    finish = -1,
+    dataIndexes = [],
+    allStacked = false,
+    stacked = false,
+    neighbors = false,
+    additionalLeftMargin = 0,
+    additionalRightMargin = 0,
+    toReplace,
+    horizontalTicks = true,
+    forceLength = 0 } = {}) {
 
-    const data_main = data_p;
+    stacked = allStacked ? true : stacked;
 
-    //We need this container because of scroll bars
-    const svgContainer = d3.select('body')
-        .attr('class', 'svgContainer')
-        .style('width', width_p + 'px')
+    //Container for svg
+    var svgContainer;
+
+    if (chartNum == undefined) {
+        var temp = d3.select('#' + toReplace).node().parentNode;
+        temp.innerHTML = '';
+        svgContainer = d3.select(temp);
+    }
+    else {
+        d3.select('#' + toReplace).remove();
+        svgContainer = d3.selectAll('.chartArea')
+            .filter(function (d, i) { return i === chartNum; });
+    }
+
+    svgContainer.innerHTML = '';
+
+    svgContainer.style('width', width_p + 'px')
         .style('height', height_p + 'px');
-  	
+
     //Main element
     const svg = svgContainer
-        .append("svg")
+        .append('svg')
         .attr('class', 'charts')
-        .attr("width", width_p)
-        .attr("height", height_p);
+        .attr('width', width_p)
+        .attr('height', height_p);
 
-    //Tooltip
-    //ïî 15px çà ñòîëáåö
-    const tooltip = svgContainer.append('div')
-        .style("position", "absolute")
-        .style("visibility", 'hidden')
-        .attr("class", "tooltip")
-        .style("background-color", "white")
-        .style("border", "solid")
-        .style("border-width", "2px")
-        .style("border-radius", "5px")
-        .style("padding", "5px")
-        .style('width', '150px')
-        .style('height', '130px');
+    //Set up tooltip
+    const tooltip = svgContainer.append('div');
 
-    tooltip.append('div')
-        .attr('class', 'tooltip_header')
-        .append('span');
+    //Legend
+    var legend = undefined;
+    var maxWidth = 0;
+    var textHeight = 20;
+    var textMargin = 5;
+    var rectX = -12;
+    var rectY = -12;
 
-    tooltip.append('div')
-        .attr('class', 'tooltip_text');
-
+    var leftMargin = 75 + additionalLeftMargin;
+    var rightMargin = 55 + additionalRightMargin;
     //Set margin and append g element considering margin
-    const margin = { "top": 20, "right": 55, "bottom": 30, "left": 45 };
+    const margin = { 'top': 20, 'right': rightMargin, 'bottom': 30, 'left': leftMargin };
     const g = svg.append('g')
         .attr('transform', `translate(${margin.left},${margin.top})`);
 
@@ -64,32 +96,62 @@ function makeChart(chartNum, data_p, width_p, height_p,
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
 
+    //If stacked
+    var forStack = [];
     //Maximum length of an array
     var length = 0;
     //Width of rectangle
     var rectWidth = 0;
-    //Counter for chart's id's
-    var idCounter = 0;
+    //rectWidth/2 + 2
+    var offset = 0;
+    //Counter for charts
+    var chartCounter = 0;
 
-    //Here we render the invisible rectangles that will
-    //select the nodes behind them
-    const renderThings = () => {
-
+    var maxTextLength = 0;
+    var flagForTextLength = true;
+    //Set up legend, transparent rectangles and their eventListeners
+    function renderThings(xScale, data, isBand, bandData) {
+        //Set up rectangle in legend
+        var textNodesCount = tooltip.selectAll('.text_for_node').size();
+        legend.attr(
+            'transform',
+            `translate(${innerWidth - maxWidth}, ${margin.top + margin.bottom + 5})`
+        );
+        legend.select('.legend-rect')
+            .attr('width', maxWidth * 1.23 + 5 + 'px')
+            .attr('height', textNodesCount * textHeight + textMargin * 2 + rectY / 2 + 'px')
+            .attr('x', rectX)
+            .attr('y', rectY)
+            .style('fill', 'white')
+            .style('stroke', 'black')
+            .style('opacity', 0.8);
         //Append g element and append rectangles in cycle
         const selection = g.append('g').attr('class', 'sectionForSelection');
-        for (var i = 0; i < length; i++) {
-            selection.append('rect')
-                //Width of rectangle * rectangle¹ + small range between rectangles
-                .attr('transform', `translate(${i * rectWidth + (i * 2)}, ${0})`)
-                .attr('width', rectWidth)
-                .attr('height', innerHeight)
-                .style('fill', 'transparent');
-                //.style('opacity', 0.4);
-        }
-        //This is how we select nodes behind rectangles
+        selection.selectAll('rect')
+            .data(data).enter().append('rect')
+            //Width of rectangle * rectangleâ„– + small range between rectangles
+            .attr('transform', (d, i) => {
+                var toReturn = xScale(i + 1) > innerWidth && i < 1 ? xScale(i + 0.5) - offset : xScale(i) + 1;
+                //SAY MY NAME
+                //Kostyl....
+                //You're God damn right
+                toReturn = length < 7 && length > 1 ? toReturn + ((innerWidth / length) / ((0.5 + (0.05 * (length - 2))) * (length + 3))) : toReturn;
+                if (neighbors) {
+                    toReturn -= rectWidth + rectWidth * neighborNum;
+                }
+                else if (isBand) {
+                    toReturn -= rectWidth / 2;
+                }
+                return `translate(${toReturn}, 0)`;
+            })
+            .attr('width', rectWidth)
+            .attr('height', innerHeight)
+            .style('fill', 'transparent');
+
+        //Get nodes(circles and rectangles) behind transparentRectangle[k]
         function getNodes(k) {
             var elements = [];
-            for (var l = 0; l < idCounter; l++) {
+            for (var l = 0; l < chartCounter; l++) {
                 var temp = d3.select(svgContainer).node().select(`[name=chart_${l}]`);
                 if (!temp.select(`[name=c${l}-rect_${k}]`).empty()) {
                     elements.push(temp.select(`[name=c${l}-rect_${k}]`));
@@ -100,290 +162,591 @@ function makeChart(chartNum, data_p, width_p, height_p,
             }
             return elements;
         }
-        //Putting all the magic here
+        //Add eventListeners to rectangles
         d3.select(svgContainer).node().select('.sectionForSelection').selectAll('rect')
             .on('mouseover', function (d, k) {
+                //Get nodes behind this rectangle
                 var arrOfNodes = getNodes(k);
-                tooltip.style('height', 10 + 13 * arrOfNodes.length + 'px');
-                d3.select(svgContainer).node().select('.tooltip_header').select('span')
-                    .text(`Äàííûå ${k + 1} íåäåëè:`);
-                var text = '';
+
+                tooltip.style('height', 11.8 * (arrOfNodes.length + 1) + 2 + 'px');
+                var spanHeaderText = `${k + 1} Ð½ÐµÐ´ÐµÐ»Ð¸:`;
+                if (isBand) {
+                    spanHeaderText = `${bandData[k]}:`
+                }
+                //Change tooltip header
+                var spanHeader = d3.select(svgContainer).node().select('.tooltip_header').select('span')
+                    .text(`Ð”Ð°Ð½Ð½Ñ‹Ðµ ${spanHeaderText}`);
+                if (flagForTextLength)
+                    maxTextLength = spanHeader.node().offsetWidth > maxTextLength ? spanHeader.node().offsetWidth : maxTextLength;
+                //For each node dispatch her event and use her value attr for tooltip
                 arrOfNodes.forEach((el, i) => {
                     el.dispatch('mouseover');
-                    d3.select(svgContainer).node().select(`[name=span_${i}]`)
-                        .text(el.attr('columnName') + '\t' + el.attr('value'));
+                    var span = d3.select(svgContainer).node().select(`[name=span_${i}]`)
+                        .text(el.attr('columnName') + ':\t' + el.attr('value'));
+                    if (flagForTextLength)
+                        maxTextLength = span.node().scrollWidth > maxTextLength ? span.node().scrollWidth : maxTextLength;
                 });
-
+                //Make tooltip visible
+                if (flagForTextLength)
+                    tooltip.style('width', (maxTextLength + 5) + 'px');
+                flagForTextLength = false;
                 tooltip
-                    .style('visibility', 'visible')
-                    .style('font-size', 11 + 'px');
+                    .style('visibility', 'visible');
             })
             .on('mouseout', function (d, k) {
+                //For each node behind dispatch mouseout
                 getNodes(k).forEach(el =>
                     el.dispatch('mouseout'));
-                tooltip.selectAll('.text_for_node').text(' ');
+                //Reset all text back (if we won't do that, tooltip won't scale)
+                tooltip.selectAll('.text_for_node')
+                    .text(' ');
+                //Make tooltip hidden
                 tooltip
                     .style('visibility', 'hidden');
             })
             .on('mousemove', function (d, k) {
+                //Change tooltip position
                 tooltip
-                    .style("top", event.pageY - 100 + "px");
+                    .style('top', event.pageY - 100 + 'px');
                 var translate = +tooltip.style('width')
                     .split('px')[0];
                 //Translate on the left
                 if (translate + event.pageX > svg.attr('width'))
-                    tooltip.style('left', event.pageX - translate - 20 + "px");
+                    tooltip.style('left', event.pageX - translate - 20 + 'px');
                 else
-                    tooltip.style('left', event.pageX + 10 + "px");
+                    tooltip.style('left', event.pageX + 10 + 'px');
             });
+        if (stringForAbuseDay != '') {
+            d3.select(svgContainer).node().select('.sectionForSelection').selectAll('rect')
+                .on('click', function (d, k) {
+                    var newWindow = window.open(`http://${window.location.href.split('//')[1].split('/')[0]}/AbuseDay.aspx?${k + 1}?${k + 2}?${stringForAbuseDay.replace(' ', '_')}`);
+                    if (window.focus) {
+                        newWindow.focus();
+                    }
+                })
+        }
     };
 
     //This function adds axes to chart
-    const renderAxes = (data, xScale, yScaleLeft, yScaleRight) => {
-        g.append('g').call(d3.axisBottom(xScale).ticks(length / 2))
-            .attr('transform', `translate(${-rectWidth / 2 - 2}, ${innerHeight})`)
-            .attr('height', 20)
-            .attr('class', 'rightAxis');
-        var path = d3.select('.rightAxis').select('.domain');
-      	var pathD = path.attr('d');
-      	//Change this crap on RegEx
-      	path.attr('d', pathD.split('H')[0]+'H'+(+pathD.split('H')[1].split('.')[0]+2*(rectWidth / 2 + 2))+'.'+pathD.split('H')[1].split('.')[1]);
-        g.append('g').call(d3.axisLeft(yScaleLeft))
+    function renderAxes(data, xScale, yScaleLeft, yScaleRight, leftTicks, rightTicks, isBand, isDate) {
+        const axes = g.append('g').attr('class', 'axes');
+
+        var axisLeft = d3.axisLeft(yScaleLeft)
+            .ticks(leftTicks)
+            .tickSizeOuter(0);
+        var tickSizeLeft = -innerWidth;
+        if (rightAxis) {
+            tickSizeLeft -= offset * 2;
+        }
+        else {
+            tickSizeLeft -= offset;
+        }
+        if (!horizontalTicks) {
+            tickSizeLeft = 0;
+        }
+        axisLeft
+            .tickSizeInner(tickSizeLeft);
+        var bottomAxis = d3.axisBottom(xScale);
+        bottomAxis
+            .tickSizeInner(-innerHeight)
+            .tickSizeOuter(0)
+            .tickPadding(7);
+        if (isDate) {
+            var values = xScale.domain();
+            if (!(xScale.domain().length < 5)) {
+                values = xScale.domain().map((x, i) => {
+                    if (i % (Math.floor(xScale.domain().length / 5)) == 0 || i == xScale.domain().length - 1)
+                        return x;
+                }).filter(x => {
+                    return !(x == undefined);
+                })
+                var temp = new Date();
+                if (values.length < 2) {
+                    values.push(new Date(temp.setDate(values[0].getDate() - 1)));
+                }
+                if (values.length < 3) {
+                    values.push(new Date(temp.setDate(values[0].getDate() + 1)));
+                }
+                values = values.slice().sort((a, b) => a.date - b.date)
+
+                values[values.length - 1] = values.length >= 7 ? '' : values[values.length - 1];
+            }
+            var format = d3.timeFormat("%d.%m.%Y");
+            var counter = 0;
+            bottomAxis.tickValues(xScale.domain())
+                .tickFormat(function (d, i) {
+                    if (values[counter] == d || xScale.domain().length <= 12) {
+                        counter++;
+                        return format(d)
+                    }
+                    return '';
+                });
+        }
+
+        axes.append('g')
+            .call(axisLeft)
             .attr('class', 'leftAxis')
-            .attr('transform', `translate(${-rectWidth / 2 - 2}, 0)`);
-        if (rightAxis)
-            g.append('g').call(d3.axisRight(yScaleRight))
-                .attr('transform', `translate(${innerWidth + rectWidth / 2 + 2})`)
-                .attr('class', 'bottomAxis');
-    };
+            .attr('transform', `translate(${-offset - 1}, 0)`);
+
+        if ((length == 52 || length == 53) && !isBand) {
+            bottomAxisTicks = 2;
+        }
+        if (bottomAxisTicks == 0) {
+            bottomAxisTicks = length;
+        }
+        else {
+            bottomAxisTicks = length < 26 ? length : length % 2 == 0 ? length / bottomAxisTicks : (length - 1) / bottomAxisTicks;
+        }
+        axes.append('g')
+            .call(bottomAxis.ticks(bottomAxisTicks))
+            .attr('transform', `translate(${-offset + 0.4}, ${innerHeight})`)
+            .attr('height', 20)
+            .attr('class', 'bottomAxis');
+        if (rightAxis) {
+            axes.append('g')
+                .call(d3.axisRight(yScaleRight)
+                    .ticks(rightTicks)
+                    .tickSizeInner(0)
+                    .tickSizeOuter(0))
+                .attr('transform', `translate(${innerWidth + offset})`)
+                .attr('class', 'rightAxis');
+            var path = svgContainer.select('.bottomAxis').select('.domain');
+            var pathD = path.attr('d');
+            var pathLength = parseInt(pathD.split('H')[1].split('.')[0]) + parseInt(offset);
+            //Change this crap on RegEx
+            path.attr(
+                'd',
+                pathD.split('H')[0] +
+                'H' +
+                pathLength +
+                '.' +
+                pathD.split('H')[1].split('.')[1]);
+        }
+    }
 
     //Rendering chart here
-    const renderChart = (data, columnName, yScale, xScale, lineColour, fill, rect) => {
-
+    function renderChart(
+        data,
+        columnName,
+        yScale,
+        xScale,
+        lineColour,
+        fill,
+        rect,
+        withLine,
+        isDashed,
+        neighborNum,
+        isBand
+    ) {
         //Add new element to g
-        const gNew = g
-            .append('g')
-            .attr('name', 'chart_' + idCounter++);
-
-        //Make line
-        var line = d3.line()
-            .x((d, i) => xScale(i) + (innerWidth / length) / 2) // set the x values for the line generator
-            .y(d => yScale(d)); // set the y values for the line generator 
-        //.curve(d3.curveMonotoneX); // apply smoothing to the line
+        const gNew = g.append('g').attr('name', 'chart_' + chartCounter++);
+        //Edit legend-items
+        var legendItems = legend.select('.legend-items');
+        var newTextOfLegend = legendItems
+            .append('text')
+            .attr('y', (chartCounter - 1) * textHeight + textMargin)
+            .attr('x', '1em')
+            .text(columnName);
+        if (+newTextOfLegend.node().clientWidth > maxWidth) {
+            maxWidth = +newTextOfLegend.node().clientWidth;
+        }
 
         //Radius
-        const r = 2;
+        var r = dotsRadius;
         //Stores rectangles or circles
         var elements = undefined;
 
         //If not rectangles
         if (!rect) {
+            if (withLine) {
+                //Make line
+                var line = d3.line()
+                    .x((d, i) => {
+                        var toReturn = xScale(i) + innerWidth / length / 2;
+                        if (isBand) {
+                            toReturn -= rectWidth / 2;
+                        }
+                        return toReturn;
+                    }) // set the x values for the line generator
+                    .y((d) => yScale(d)); // set the y values for the line generator
 
-            //Add line to connect circles
-            gNew.append('path')
-                .attr("d", line(data))
-                .attr("stroke", lineColour)
-                .attr("stroke-width", r)
-                .attr("fill", "none");
+                //Add line to connect circles
+                var path = gNew.append('path')
+                    .attr('d', line(data))
+                    .style('stroke', lineColour)
+                    .style('stroke-width', dotsRadius)
+                    .style('fill', 'none');
+
+                if (isDashed)
+                    path.style('stroke-dasharray', '3, 3')
+                        .style('opacity', '0.8');
+            }
 
             //Append circles
-            elements = gNew.selectAll('circle').data(data)
+            elements = gNew.selectAll('circle')
+                .data(data)
                 //We need these two lines from below to add links
-                .enter()//.append('a')
+                .enter() //.append('a')
                 //.attr('xlink:href', 'http://google.com')
                 .append('circle')
-                .attr('name', (d, i) => 'c' + (idCounter - 1) + '-circle_' + i)
-                .attr('value', d => d)
-                .attr('r', r)
-                .attr('cx', (d, i) => xScale(i) + (innerWidth / length) / 2)
-                .attr('cy', d => yScale(d));
+                .attr('name', (d, i) => 'c' + (chartCounter - 1) + '-circle_' + i)
+                .attr('value', (d) => d)
+                .attr('r', dotsRadius / 2)
+                .attr('cx', (d, i) => {
+                    var toReturn = xScale(i) + innerWidth / length / 2;
+                    if (isBand) {
+                        toReturn -= rectWidth / 2;
+                    }
+                    return toReturn;
+                })
+                .attr('cy', (d) => yScale(d));
 
+            legendItems.append('circle')
+                .attr('r', dotsRadius * 2)
+                .attr('fill', lineColour)
+                .attr('transform', `translate(0, ${(chartCounter - 1) * textHeight + textMargin - 5})`);
             //If we need area under chart
             if (fill) {
-                gNew.append("path")
+                gNew.append('path')
                     .datum(data)
-                    .attr("fill", lineColour)
-                    .attr("fill-opacity", .3)
-                    .attr("stroke", "none")
-                    .attr("d", d3.area()
-                        .x((d, i) => xScale(i) + (innerWidth / length) / 2)
-                        .y0(innerHeight)
-                        .y1(d => yScale(d))
-                    )
+                    .attr('fill', lineColour)
+                    .attr('fill-opacity', 0.3)
+                    .attr('stroke', 'none')
+                    .attr(
+                        'd',
+                        d3.area()
+                            .x((d, i) => xScale(i) + innerWidth / length / 2)
+                            .y0(innerHeight)
+                            .y1((d) => yScale(d))
+                    );
             }
         }
         //If rectangles
         else {
-
             //Append rectangles
-            elements = gNew.selectAll('rect').data(data)
+            elements = gNew.selectAll('rect')
+                .data(data)
                 //We need these two lines from below to add links
-                .enter()//.append('a')
+                .enter() //.append('a')
                 //.attr('xlink:href', 'http://google.com')
                 .append('rect')
-                .attr('name', (d, i) => 'c' + (idCounter - 1) + '-rect_' + i)
-                .attr('value', d => d)
-                .attr('x', (d, i) => xScale(i))
-                .attr('y', d => yScale(d))
-                .attr('height', d => innerHeight - yScale(d))
-                .attr('width', rectWidth);
-        };
-        //Set events
-        //I have a bit problem here, but it doesn't affect functionality
-        //I don't check here if elements are rectangles or circles, because
-        //code for this is big enough and also if I'll set attr 'r' for rects
-        //it won't affect anything.
-        elements
-            .attr('columnName', columnName)
-            .on('mouseover', function (d, i) {
-                //Change radius and colour
-                d3.select(this)
-                    //Fix for rects
-                    .attr('r', r * 2.5);
-                //.style('fill', circleColour);
-                //We don't need this right now
-                //.append('title')
-                //.text(`x value is ${i}\n`+
-                //			`y value is ${d}`);
+                .attr('name', (d, i) => 'c' + (chartCounter - 1) + '-rect_' + i)
+                .attr('value', (d) => d)
+                .attr('x', (d, i) => {
+                    var toReturn = xScale(i + 1) > innerWidth && i < 1 ? xScale(i + 0.5) - offset : xScale(i) + 1;
+                    //SAY MY NAME
+                    //Kostyl....
+                    //You're God damn right
+                    toReturn = length < 7 && length > 1 ? toReturn + ((innerWidth / length) / ((0.5 + (0.05 * (length - 2))) * (length + 3))) : toReturn;
+                    if (neighbors) {
+                        toReturn -= rectWidth + rectWidth * neighborNum;
+                    }
+                    else if (isBand) {
+                        toReturn -= rectWidth / 2;
+                    }
+                    return toReturn;
+                })
+                .attr('y', (d, i) => {
+                    var toReturn = yScale(d);
+                    if (stacked) {
+                        if (forStack.length <= i) {
+                            forStack.push(innerHeight - yScale(d));
+                        }
+                        else {
+                            toReturn -= forStack[i];
+                            forStack[i] += innerHeight - yScale(d);
+                        }
+                    }
+                    return toReturn;
+                })
+                .attr('height', (d) => innerHeight - yScale(d))
+                .attr('width', rectWidth - 2);
 
-            })
-            .on('mouseout', function (d, i) {
-                //Set radius and colour to default
-                d3.select(this)
-                    .transition()
-                    .duration(100)
-                    .attr('r', r);
-                //.style('fill', lineColour);
-            })
+            legendItems.append('rect')
+                .attr('height', dotsRadius * 4)
+                .attr('width', dotsRadius * 4)
+                .attr('x', -(dotsRadius * 4) / 2)
+                .attr('y', -(dotsRadius * 4) / 2)
+                .attr('fill', lineColour)
+                .attr('transform', `translate(0, ${(chartCounter - 1) * textHeight + textMargin - 5})`);
+        }
+        //Set events for circles
+        elements.attr('columnName', columnName)
             .style('fill', lineColour);
-    };
-    //console.log(d3.csvParse(data_main));
-    const data = d3.csvParse(data_main);
-    //csv('https://raw.githubusercontent.com/Taustus/Charts/master/2Bars3Lines/RandomData.csv')
-    //.then(data => {
+        if (!rect) {
+            elements
+                .on('mouseover', function (d, i) {
+                    //Change radius and colour
+                    d3.select(this)
+                        .attr('r', dotsRadius * 1.5);
+                })
+                .on('mouseout', function (d, i) {
+                    //Set radius and colour to default
+                    d3.select(this)
+                        .transition()
+                        .duration(0)
+                        .attr('r', dotsRadius / 2);
+                })
+        }
+        else {
+            elements
+                .on('mouseover', function (d, i) {
+                    d3.select(this).attr('stroke', 'blue').attr('stroke-width', 1.5);
+                })
+                .on('mouseout', function (d, i) {
+                    //Set radius and colour to default
+                    d3.select(this)
+                        .attr('stroke', null)
+                        .attr('stroke-width', null);
+                })
+        }
+    }
+    function configureElements() {
+        tooltip
+            .style('position', 'absolute')
+            .style('visibility', 'hidden')
+            .attr('class', 'tooltip')
+            .style('background-color', 'white')
+            .style('border', 'solid')
+            .style('border-width', '2px')
+            .style('border-radius', '5px')
+            .style('padding', '5px')
+            .style('width', '0px')
+            .style('height', '110px')
+            .style('font-size', '11px')
+            .style('white-space', 'nowrap');
 
-    ////Operations with data
-    var arrOfColumns = [];
+        tooltip.append('div')
+            .attr('class', 'tooltip_header').append('span');
 
-    for (const key in data[0]) {
-        //Cast to number
-        data.forEach(x => +x[key]);
-        var temp = data.map(x => x[key])
-            .filter(x => !isNaN(x));
-        //Map columns and filter
-        arrOfColumns.push(temp);
+        tooltip.append('div')
+            .attr('class', 'tooltip_text');
+    }
+    function mainFunction() {
+
+        const data = d3.csvParse(data_p);
+        var empty = arrOfNames.length == 0;
+        configureElements();
+        ////Operations with data
+        var arrOfColumns = [];
+        var counter = 0;
+        for (const key in data[0]) {
+            var flag = finish == -1;
+            if ((counter >= start && counter <= finish) || counter == 0 || flag) {
+                //Cast to number
+                if (empty)
+                    arrOfNames.push(key);
+                data.forEach(x => {
+                    if (!isNaN(parseInt(x[key])))
+                        return +x[key];
+                    else
+                        return x;
+                });
+                var temp = data.map(x => x[key])
+                    .filter(x => {
+                        return !(x == 'NULL');
+                    });
+                //Map columns and filter
+                arrOfColumns.push(temp);
+            }
+            counter++;
+        }
+        //If there's a column named like a number - we'll have problems
+        if (!isNaN(parseInt(arrOfNames[0]))) {
+            for (var i = 0; i < arrOfNames.length; i++) {
+                if (arrOfNames[i] == 'W') {
+                    var tempArrNames = [];
+                    var tempArrValues = [];
+                    for (var l = -1; l < i; l++) {
+                        if (l == -1) {
+                            tempArrNames.push(arrOfNames.slice(i, i + 1)[0]);
+                            tempArrValues.push(arrOfColumns.slice(i, i + 1)[0]);
+                        }
+                        else {
+                            tempArrNames.push(arrOfNames.slice(l, l + 1)[0]);
+                            tempArrValues.push(arrOfColumns.slice(l, l + 1)[0]);
+                        }
+                    }
+                    arrOfNames = tempArrNames.slice();
+                    arrOfColumns = tempArrValues.slice();
+                }
+            }
+        }
+        ////Set global vars and define scales
+        //Set vars
+        length = forceLength != undefined && forceLength != 0 ? forceLength : data.length;
+        rectWidth = length < 7 ? innerWidth / 7 : innerWidth / length;
+        offset = rectWidth / 2;
+
+        //Set legend  
+        legend = svg.append('g')
+            .attr('class', 'legend')
+            .style('font-size', '12px')
+            .style('text-align', 'right')
+            .style('background-color', 'white');
+        legend.append('rect')
+            .attr('class', 'legend-rect');
+        legend.append('g')
+            .attr('class', 'legend-items');
+
+        var isDate = false;
+
+        //Define scales
+        const yScale = (l, r) => d3.scaleLinear()
+            .domain([l, r])
+            .range([innerHeight, 0]);
+
+        const xScale = (l, r, coeff = 1) => d3.scaleLinear()
+            .domain([0, r])
+            .range([0, innerWidth + offset * coeff]);
+
+        const xScaleBand = (domain) => d3.scaleBand()
+            .domain(domain.map((x, i) => {
+                if (x.includes(':')) {
+                    isDate = true;
+                    var split = x.split('.');
+                    var temp = split[1] + '.' + split[0] + '.' + split[2].split(' ')[0];
+                    return new Date(temp);
+                }
+                else
+                    return x;
+            }))
+            .range([0, innerWidth + offset]);
+        var axisRightMax = 0, axisRightMin = Number.MAX_SAFE_INTEGER;
+        var axisLeftMax = 0, axisLeftMin = Number.MAX_SAFE_INTEGER;
+        for (var i = 1; i < arrOfColumns.length; i++) {
+            var min = d3.min(arrOfColumns[i].map(Number));
+            var max = d3.max(arrOfColumns[i].map(Number));
+            if (!rightAxis || leftArr[i]) {
+                if (max > axisLeftMax) {
+                    axisLeftMax = max;
+                }
+                if (min < axisLeftMin) {
+                    axisLeftMin = min;
+                }
+            }
+            else if (rightAxis) {
+                if (max > axisRightMax) {
+                    axisRightMax = max;
+                }
+                if (min < axisRightMin) {
+                    axisRightMin = min;
+                }
+            }
+        }
+
+        if (allStacked) {
+            for (var i = 0; i < arrOfColumns[0].length; i++) {
+                var subMax = 0;
+                for (var l = 1; l < arrOfColumns.length; l++) {
+                    subMax += +arrOfColumns[l][i];
+                }
+                axisLeftMax = subMax > axisLeftMax ? subMax : axisLeftMax;
+            }
+
+            if (rightAxis) {
+                for (var i = 0; i < arrOfColumns[0].length; i++) {
+                    var subMax = 0;
+                    for (var l = 1; l < arrOfColumns.length; l++) {
+                        subMax += +arrOfColumns[l][i];
+                    }
+                    axisRightMax = subMax > axisRightMax ? subMax : axisRightMax;
+                }
+            }
+        }
+        function countDigits(n) {
+            for (var i = 0; n > 1; i++) {
+                n /= 10;
+            }
+            return i;
+        }
+
+        axisLeftMax = forcleLeftAxisMax != undefined ? forcleLeftAxisMax : axisLeftMax;
+        axisLeftMin = forceLeftAxisMin != undefined ? forceLeftAxisMin : axisLeftMin;
+        axisRightMax = forceRightAxisMax != undefined ? forceRightAxisMax : axisRightMax;
+        axisRightMin = forceRightAxisMin != undefined ? forceRightAxisMin : axisRightMin;
+
+        var distanceCoefficient = 0.2;
+
+        var leftTicks = 0, rightTicks = 0;
+        //Dance with left max value
+        var temp = countDigits(axisLeftMax);
+        var smallValue = parseFloat((axisLeftMax / Math.pow(10, (temp - 1))).toFixed(1));
+        var topSpace = smallValue % 0.5 == 0 ? 0.5 : parseFloat((0.5 - parseFloat((smallValue % 0.5).toFixed(1))).toFixed(1));
+        topSpace += topSpace < distanceCoefficient && smallValue != 0 ? 0.5 : 0;
+        axisLeftMax = (smallValue + topSpace) * Math.pow(10, (temp - 1));
+        //Fix for percents
+        axisLeftMax = axisLeftMax >= 75 && (axisLeftMax < 100 || (axisLeftMax > 100 && axisLeftMax < 110)) ? 100 : axisLeftMax;
+        //Dance with left min value
+        temp = countDigits(axisLeftMin);
+        smallValue = parseFloat((axisLeftMin / Math.pow(10, (temp - 1))).toFixed(1));
+        topSpace = smallValue % 0.5 == 0 ? smallValue == 0 ? 0 : 0.5 : parseFloat((smallValue % 0.5).toFixed(1));
+        topSpace += topSpace < 0.2 && smallValue != 0 ? 0.5 : 0;
+        axisLeftMin = (smallValue - topSpace) * Math.pow(10, (temp - 1));
+        //Left ticks
+        leftTicks = Math.ceil(axisLeftMax - axisLeftMin);
+        leftTicks = (leftTicks / Math.pow(10, countDigits(leftTicks) - 1)) / 0.5;
+        if (rightAxis) {
+            //Dance again with right max value
+            temp = countDigits(axisRightMax);
+            smallValue = parseFloat((axisRightMax / Math.pow(10, (temp - 1))).toFixed(1));
+            topSpace = smallValue % 0.5 == 0 ? 0.5 : parseFloat((0.5 - parseFloat((smallValue % 0.5).toFixed(1))).toFixed(1));
+            topSpace += topSpace < 0.2 && smallValue != 0 ? 0.5 : 0;
+            axisRightMax = (smallValue + topSpace) * Math.pow(10, (temp - 1));
+            //Finally dance with right min value
+            temp = countDigits(axisRightMin);
+            smallValue = parseFloat((axisRightMin / Math.pow(10, (temp - 1))).toFixed(1));
+            topSpace = smallValue % 0.5 == 0 ? smallValue == 0 ? 0 : 0.5 : parseFloat((smallValue % 0.5).toFixed(1));
+            topSpace += topSpace < 0.2 && smallValue != 0 ? 0.5 : 0;
+            axisRightMin = (smallValue - topSpace) * Math.pow(10, (temp - 1));
+            //Right ticks
+            rightTicks = Math.ceil(axisRightMax - axisRightMin);
+            rightTicks = (rightTicks / Math.pow(10, countDigits(rightTicks) - 1)) / 0.5;
+        }
+
+        var isBand = false;
+        for (var i = 0; i < 1; i++) {
+            for (var l = 0; l < arrOfColumns[i].length; l++) {
+                if (isNaN(parseInt(arrOfColumns[i][l])) || arrOfColumns[i][l].includes(':')) {
+                    isBand = true;
+                    break;
+                }
+            }
+        }
+        renderAxes(data,
+            isBand ? xScaleBand(arrOfColumns[0]) : xScale(0, length, 1),
+            yScale(axisLeftMin, axisLeftMax),
+            yScale(axisRightMin, axisRightMax),
+            leftTicks, rightTicks,
+            isBand,
+            isDate);
+
+        //Render all columns
+        for (var i = 1; i < arrOfColumns.length; i++) {
+            d3.select(svgContainer).node().select('.tooltip_text')
+                .append('span')
+                .attr('name', 'span_' + (i - 1))
+                .attr('class', 'text_for_node')
+                .style('display', 'block');
+            var yScaleLeftOrRight =
+                !rightAxis || leftArr[i] ? yScale(axisLeftMin, axisLeftMax) : yScale(axisRightMin, axisRightMax);
+            //renderChart params:
+            //array, yScale(array), xScale, colour for mouseover event, line/bar colour, withArea, isRectangle)
+            renderChart(
+                arrOfColumns[i],
+                arrOfNames[i],
+                yScaleLeftOrRight,
+                xScale(0, length),
+                arrOfColors[i],
+                arrArea[i],
+                arrRectangle[i],
+                arrOfLines.length == 0 ? true : arrOfLines[i],
+                dashedLine.length == 0 ? false : dashedLine[i],
+                i - 1,
+                isBand)
+        }
+        renderThings(xScale(0, length), data, isBand, arrOfColumns[0]);
     }
 
-    ////Set global vars and define scales
-    //Set vars
-    length = data.length;
-    rectWidth = innerWidth / length - 2;
-    //Define scales
-    const yScale = (l, r) => d3.scaleLinear()
-        .domain([l, r])
-        .range([innerHeight, 0]);
-
-    const xScale = (l, r) => d3.scaleLinear()
-        .domain([0, length])
-        .range([0, innerWidth]);
-
-    ////Render this beauty
-    //Render left, bottom and right axes
-    renderAxes(data,
-        xScale(bottomAxisMinValue, bottomAxisMaxValue),
-        yScale(leftAxisMinValue, leftAxisMaxValue),
-        yScale(rightAxisMinValue, rightAxisMaxValue));
-
-    //Define colors arr
-    //Render all columns
-    for (var i = 1; i < arrOfColumns.length; i++) {
-        d3.select(svgContainer).node().select('.tooltip_text')
-            .append('span')
-            .attr('name', 'span_' + i)
-            .attr('class', 'text_for_node')
-            .style('display', 'block');
-      	
-
-        var yScaleLeftOrRight = yScale(leftAxisMinValue, leftAxisMaxValue);
-        var left = d3.max(arrOfColumns[i]) <= leftAxisMaxValue;
-        yScaleLeftOrRight = left ?
-            yScale(leftAxisMinValue, leftAxisMaxValue) :
-            yScale(rightAxisMinValue, rightAxisMaxValue);
-
-        //renderChart params:
-        //array, yScale(array), xScale, colour for mouseover event, line/bar colour, withArea, isRectangle)
-        renderChart(arrOfColumns[i],
-            arrOfNames[i],
-            yScaleLeftOrRight,
-            xScale(bottomAxisMinValue, bottomAxisMaxValue),
-            arrOfColors[i],
-            arrArea[i],
-            arrRectangle[i])
-    }
-    renderThings();
-
+    mainFunction();
 }
-makeChart(0,
-            `A,B,C,D,E,F,G,H,I
-13,64,72,79.364,3200,3500,400,87,77
-11,61.488,100,77.364,3104,2381,2547,87,77
-23,58.17,69.592,NULL,2850,2226,NULL,87,77
-14,61.544,71.768,NULL,3561,2502,NULL,87,77
-7,50.939,72.44,77.328,3360,2237,1608,87,77
-4,62.657,70.72,80.019,2571,2178,1940,87,77
-1,62.902,70.28,79.695,2208,2045,2173,87,77
-26,59.92,68.336,NULL,2516,2050,NULL,87,77
-16,60.928,69.672,NULL,2821,2238,NULL,87,77
-13,60.914,69.776,NULL,2920,2465,NULL,87,77
-6,59.808,71.76,79.191,2374,2134,2224,87,77
-17,59.864,69.384,NULL,2657,2606,NULL,87,77
-3,61.635,70.152,79.011,2363,2171,2228,87,77
-21,59.976,69.712,NULL,2641,2444,NULL,87,77
-24,59.171,69.672,NULL,2674,2071,NULL,87,77
-10,59.836,69.864,77.301,3448,2342,2120,87,77
-13,61.061,67.976,NULL,3396,2454,NULL,87,77
-19,60.879,69.76,NULL,2621,2253,NULL,87,77
-22,58.919,65.896,NULL,2895,2374,NULL,87,77
-3,61.691,71.472,80.001,2358,2639,2288,87,77
-25,60.312,70.048,NULL,2734,2307,NULL,87,77
-0,59.885,70.784,79.191,614,492,366,87,77
-12,60.585,69.392,74.88,2183,2328,2180,87,77
-23,60.235,68.424,NULL,2632,2157,NULL,87,77
-9,59.759,70.256,78.984,1870,1460,1575,87,77
-15,59.773,70.552,NULL,3121,2508,NULL,87,77
-5,62.426,68.776,80.1,1752,1651,2516,87,77
-20,58.94,70.048,NULL,2724,2362,NULL,87,77
-2,62.671,71.584,79.605,2285,2214,2181,87,77
-9,59.556,71.448,76.923,2354,2166,1327,87,77
-12,59.43,67.976,70.326,2696,2604,2862,87,77
-18,59.402,70.04,NULL,2995,2405,NULL,87,77
-6,61.152,70.856,78.669,2765,2326,2198,87,77
-21,58.429,69.68,NULL,3035,2246,NULL,87,77
-2,62.293,70.864,78.147,2412,1991,2405,87,77
-11,61.327,69.32,78.579,3041,2385,2212,87,77
-16,59.318,69.36,NULL,2731,2326,NULL,87,77
-19,61.271,71.96,NULL,3220,2555,NULL,87,77
-8,61.005,69.224,79.677,3118,2317,1597,87,77
-22,57.477,68.48,NULL,2276,1939,NULL,87,77
-1,62.643,67.984,78.615,1781,1271,1164,87,77
-24,61.117,68.2,NULL,2515,2031,NULL,87,77
-8,61.502,71.792,79.506,3645,2373,1736,87,77
-15,61.117,69.36,NULL,2704,2184,NULL,87,77
-17,60.564,70.08,NULL,2872,2444,NULL,87,77
-20,60.137,69.856,NULL,2752,2307,NULL,87,77
-5,63.28,70.712,79.533,2915,2110,1973,87,77
-10,62.825,70.464,77.373,3427,2566,1670,87,77
-14,60.34,69.744,NULL,3008,2501,NULL,87,77
-7,57.757,70.16,78.867,2768,1929,1416,87,77
-18,61.04,69.208,NULL,2730,2039,NULL,87,77
-4,60.522,71.12,80.163,1937,2402,2327,87,77
-25,61.089,69.368,NULL,2514,2748,NULL,87,77`,
-            960, 450,
-          	['', 'l', 'o', 'l', 'k' ,'e', 'k', 'f', 'k'],
-            ['', '#e6e6e6', 'Orange', '#8080ff', 'Gray', 'DarkOliveGreen', 'Red', 'green', 'black', 'purple'],
-            [null, false, true, false, false, false, false, false, false, false],
-            [null, true, false, false, false, false, false, false, false, false],
-            true,
-            0, 3700,
-            0, 100,
-            0, 52);
