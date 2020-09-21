@@ -6,10 +6,6 @@ export function createMap({
     var width = 960,
         height = 500;
 
-    ///>
-    //<asp: ControlParameter ControlID="Calendar2" PropertyName="SelectedDate" DefaultValue="1970-01-01" Name="DateEnd">
-    // Setting color domains(intervals of values) for our map
-
     var ext_color_domain = [0, 50, 150, 350]
     var legend_labels = ["SUPER", "OK", "NOK", "UPS"]
     var colors = ["#30d5c7", "green", "#ffba00", "red"];
@@ -123,8 +119,7 @@ export function createMap({
 
         // Adding cities on the map
 
-        d3.tsv("./FilesForCharts/cities.tsv", function (error, data) {
-            console.log(data);
+        d3.tsv("https://raw.githubusercontent.com/Taustus/Charts/master/Map/cities.tsv", function (error, data) {
             var city = svg.selectAll("g.city")
                 .data(data)
                 .enter()
