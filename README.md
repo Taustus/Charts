@@ -1,2 +1,2 @@
 # Charts
-Trying to create nice chart via d3.js
+Trying to create nice charts via d3.js
